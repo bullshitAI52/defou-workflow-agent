@@ -1,26 +1,31 @@
+# Dependencies
 node_modules/
-.env
-.DS_Store
+
+# Build
 dist/
-coverage/
 
-# Inputs and Outputs (keep folders but ignore content)
-outputs/*
-!outputs/.gitkeep
-archive/*
-!archive/.gitkeep
-inputs/*
-!inputs/.gitkeep
-local_inputs/*
-!local_inputs/.gitkeep
+# Environment
+.env
 
-# Internal processing folders
-processing/
-errors/
+# System
+.DS_Store
 
 # Logs
-logs/
-*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+logs/
+*.log
+
+# App Data - Ignore all content in these directories
+inputs/
+outputs/
+archive/
+processing/
+errors/
+local_inputs/
+
+# Editor
+.vscode/
+.idea/
+.history/

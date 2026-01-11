@@ -212,7 +212,7 @@ Please create a content piece following the **Defou x Stanley Workflow**.
 4. **Structure**: Re-structure scattered thoughts into a logical flow.
 
 ### IP Persona
-- **Language**: Extremely restrained. One sentence per line. Visual white space.
+- **Language**: Simplified Chinese. Extremely restrained. One sentence per line. Visual white space.
 - **Tone**: Judgment over emotion. Do not please the reader.
 - **Content**: Data/Facts > Flowery words. Include one sharp, cruel, life-like metaphor.
 - **Values**: Structure > Effort; Choice > Execution; Long-term > Short-term. End with a sense of "powerlessness" or "clarity" regarding human nature/hierarchy.

@@ -11,7 +11,7 @@ description: 自动获取 TopHub 热榜，精选选题，并使用 Defou x Stanl
 
 1.  **Fetch Trends**: 获取 TopHub 实时热榜数据。
 2.  **Select Topics**: 智能筛选最具爆款潜力的 **10** 个选题。
-3.  **Generate Content**: 批量为这 10 个选题应用 Defou x Stanley 工作流，生成包含“极致爆款版”和“深度认知版”的内容。
+3.  **Generate Content**: 批量为这 10 个选题应用 Defou x Stanley 工作流，生成包含“极致爆款版”、“深度认知版”和“得否Stanley融合版”的三合一内容。
 4.  **Save Output**: 输出 Markdown 格式的最终稿件。
 
 ## 使用方法

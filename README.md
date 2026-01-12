@@ -243,3 +243,43 @@ npm run skill:verify
 # 模式 E: 批量处理文章链接 (启动监听 -> 投放清单 -> 自动生成+验证)
 npm run skill:list
 ```
+
+## 📦 交付与分享指南
+
+如果你需要将此项目发送给其他人使用，请遵循以下步骤：
+
+### 1. 发送前的清理
+为了减小文件体积并保护隐私，请**不要**打包以下文件/文件夹：
+- ❌ `node_modules/` (体积很大，接收方需要重新安装)
+- ❌ `.env` (包含你的私钥，接收方应配置自己的 key)
+- ❌ `outputs/` (这是你的生成结果，除非你想分享)
+
+**建议打包内容**：
+- ✅ `src/`
+- ✅ `skills/`
+- ✅ `package.json` & `package-lock.json`
+- ✅ `tsconfig.json`
+- ✅ `README.md`
+- ✅ `run.command`
+
+### 2. 接收方(新用户)安装步骤
+
+**Step 1: 环境准备**
+确保电脑上安装了 [Node.js](https://nodejs.org/) (建议版本 v18+)。
+
+**Step 2: 安装依赖**
+解压项目后，在终端进入项目目录并运行：
+```bash
+npm install
+```
+
+**Step 3: 秘钥配置**
+复制配置模板并填入 API Key：
+```bash
+cp .env.example .env
+```
+打开 `.env` 文件，填入你的 `ANTHROPIC_API_KEY`。
+
+**Step 4: 一键启动**
+双击 `run.command` 开始使用。
+

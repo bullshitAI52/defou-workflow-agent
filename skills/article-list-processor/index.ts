@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
-import Anthropic from '@anthropic-ai/sdk';
+import { llm } from '../../src/llm_client';
+import { CONFIG } from '../../src/config';
 import pLimit from 'p-limit';
 import fetch from 'node-fetch';
 import { JSDOM } from 'jsdom';
@@ -37,10 +38,7 @@ const ARCHIVE_DIR = path.join(projectRoot, 'archive');
 });
 
 // 3. Initialize Anthropic Client
-const anthropic = new Anthropic({
-  apiKey: ANTHROPIC_API_KEY || 'dummy',
-  baseURL: ANTHROPIC_BASE_URL,
-});
+// Removed manual initialization, using shared llm client
 
 interface ArticleItem {
   title: string;
@@ -176,17 +174,13 @@ ${articleContent.slice(0, 8000)}... (truncated)
 * **Reason**: [Reason]
 `;
 
-  const msg = await anthropic.messages.create({
-    model: "anthropic/claude-sonnet-4",
-    max_tokens: 4000,
-    temperature: 0.7,
+  const markdown = await llm.generateText({
     system: "You are Defou x Stanley, a viral content expert.",
-    messages: [
-      { role: "user", content: prompt }
-    ]
+    messages: [{ role: "user", content: prompt }],
+    model: CONFIG.LLM_MODEL || "anthropic/claude-sonnet-4"
   });
 
-  return (msg.content[0] as any).text;
+  return markdown;
 }
 
 /**
@@ -245,7 +239,7 @@ async function processInputFile(filePath: string) {
       return limit(async () => {
         try {
           console.log(`\n[${index + 1}/${articles.length}] Processing: ${article.title}`);
-          
+
           // 1. Fetch Content
           const content = await fetchArticleContent(article.link);
           if (content.startsWith('[Failed')) {
@@ -284,7 +278,7 @@ ${generatedContent}
     });
 
     await Promise.all(tasks);
-    
+
     // Archive the input list file after processing
     const archivePath = path.join(ARCHIVE_DIR, `${Date.now()}_${filename}`);
     fs.renameSync(filePath, archivePath);
@@ -327,7 +321,7 @@ async function run() {
 
     // Use a lock mechanism or queue if needed, but for now sequential processing per file add is fine
     // Since chokidar might fire multiple events, awaitWriteFinish helps.
-    
+
     console.log(`\n✨ Detected new file: ${filename}`);
     await processInputFile(filePath);
     console.log(`\n👀 Waiting for next file...`);

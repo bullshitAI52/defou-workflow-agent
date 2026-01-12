@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
-import Anthropic from '@anthropic-ai/sdk';
+import { llm } from '../../src/llm_client';
+import { CONFIG } from '../../src/config';
 import pLimit from 'p-limit';
 
 // 1. Load Environment Variables
@@ -31,10 +32,7 @@ if (!fs.existsSync(TARGET_DIR)) {
 }
 
 // 3. Initialize Anthropic Client
-const anthropic = new Anthropic({
-  apiKey: ANTHROPIC_API_KEY || 'dummy',
-  baseURL: ANTHROPIC_BASE_URL,
-});
+// Removed manual initialization, using shared llm client
 
 /**
  * Load prompt from SKILL.md
@@ -43,13 +41,13 @@ function loadPromptFromSkill(): string {
   try {
     const skillPath = path.join(__dirname, 'SKILL.md');
     const content = fs.readFileSync(skillPath, 'utf-8');
-    
+
     // Regex to capture content inside the first markdown code block
     const match = content.match(/```markdown\n([\s\S]*?)\n```/);
     if (match && match[1]) {
       return match[1];
     }
-    
+
     throw new Error('Could not find markdown code block in SKILL.md');
   } catch (error) {
     console.error('❌ Failed to load prompt from SKILL.md:', error);
@@ -71,7 +69,7 @@ function isVerified(filename: string, verifiedFiles: string[]): boolean {
  */
 function getPendingFiles(limitCount: number = 10): string[] {
   if (!fs.existsSync(SOURCE_DIR)) return [];
-  
+
   // Get all source files sorted by newest first
   const sourceFiles = fs.readdirSync(SOURCE_DIR)
     .filter(file => file.endsWith('.md'))
@@ -83,8 +81,8 @@ function getPendingFiles(limitCount: number = 10): string[] {
     .sort((a, b) => b.time - a.time);
 
   // Get all verified files
-  const verifiedFiles = fs.existsSync(TARGET_DIR) 
-    ? fs.readdirSync(TARGET_DIR) 
+  const verifiedFiles = fs.existsSync(TARGET_DIR)
+    ? fs.readdirSync(TARGET_DIR)
     : [];
 
   // Filter out already verified files
@@ -93,7 +91,7 @@ function getPendingFiles(limitCount: number = 10): string[] {
     .map(file => file.path); // Return full paths
 
   console.log(`Found ${sourceFiles.length} total files, ${sourceFiles.length - pendingFiles.length} already verified.`);
-  
+
   return pendingFiles.slice(0, limitCount);
 }
 
@@ -106,33 +104,29 @@ async function verifyContent(content: string, filename: string) {
 
   console.log(`🤖 Verifying content for: "${filename}"...`);
 
-  const msg = await anthropic.messages.create({
-    model: "anthropic/claude-sonnet-4",
-    max_tokens: 4000,
-    temperature: 0.7,
+  const markdown = await llm.generateText({
     system: "You are a Viral Content Validator.",
-    messages: [
-      { role: "user", content: prompt }
-    ]
+    messages: [{ role: "user", content: prompt }],
+    model: CONFIG.LLM_MODEL || "anthropic/claude-sonnet-4"
   });
 
-  return (msg.content[0] as any).text;
+  return markdown;
 }
 
 /**
  * Process a single file
  */
 async function processFile(filePath: string) {
-    const filename = path.basename(filePath);
-    try {
-        const content = fs.readFileSync(filePath, 'utf-8');
-        const verificationResult = await verifyContent(content, filename);
+  const filename = path.basename(filePath);
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const verificationResult = await verifyContent(content, filename);
 
-        const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const outputFilename = `verified_${dateStr}_${filename}`;
-        const outputPath = path.join(TARGET_DIR, outputFilename);
+    const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const outputFilename = `verified_${dateStr}_${filename}`;
+    const outputPath = path.join(TARGET_DIR, outputFilename);
 
-        const finalContent = `
+    const finalContent = `
 <!--
 Original File: ${filename}
 Verification Date: ${new Date().toLocaleString()}
@@ -141,11 +135,11 @@ Verification Date: ${new Date().toLocaleString()}
 ${verificationResult}
 `;
 
-        fs.writeFileSync(outputPath, finalContent);
-        console.log(`✅ Verified content saved to: ${outputPath}`);
-    } catch (error) {
-        console.error(`❌ Error verifying ${filename}:`, error);
-    }
+    fs.writeFileSync(outputPath, finalContent);
+    console.log(`✅ Verified content saved to: ${outputPath}`);
+  } catch (error) {
+    console.error(`❌ Error verifying ${filename}:`, error);
+  }
 }
 
 /**
@@ -170,12 +164,12 @@ async function run() {
       // Auto-detect pending files
       console.log('No input file provided. Looking for unverified files (limit 10)...');
       filesToProcess = getPendingFiles(10);
-      
+
       if (filesToProcess.length === 0) {
         console.log('✨ All files are already verified! Nothing to do.');
         return;
       }
-      
+
       console.log(`🎯 Found ${filesToProcess.length} pending files to verify.`);
     }
 

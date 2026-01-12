@@ -1,6 +1,7 @@
 import fetch from 'node-fetch';
 import * as cheerio from 'cheerio';
-import Anthropic from '@anthropic-ai/sdk';
+import { llm } from '../../src/llm_client';
+import { CONFIG } from '../../src/config';
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
@@ -47,20 +48,25 @@ interface Topic {
   link: string;
 }
 
-const TOPHUB_URL = 'https://tophub.today/hot';
+const SOURCE_URLS: Record<string, string> = {
+  hot: 'https://tophub.today/hot',
+  twitter: 'https://tophub.today/n/KqndgxeLl9',
+  douyin: 'https://tophub.today/n/Mk4Qbgm7Jk',
+  weibo: 'https://tophub.today/n/KqndgxeLl9' // Fallback
+};
+
+// Default to hot
+const DEFAULT_SOURCE = 'hot';
 
 // 3. Initialize Anthropic Client
-const anthropic = new Anthropic({
-  apiKey: ANTHROPIC_API_KEY || 'dummy',
-  baseURL: ANTHROPIC_BASE_URL,
-});
+// Removed manual initialization, using shared llm client
 
 /**
  * Fetch hot list from TopHub
  */
-async function fetchHotList(): Promise<HotItem[]> {
-  console.log(`Fetching ${TOPHUB_URL}...`);
-  const response = await fetch(TOPHUB_URL, {
+export async function fetchHotList(url: string): Promise<HotItem[]> {
+  console.log(`Fetching ${url}...`);
+  const response = await fetch(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
@@ -74,32 +80,45 @@ async function fetchHotList(): Promise<HotItem[]> {
   const $ = cheerio.load(html);
   const items: HotItem[] = [];
 
+  // Strategy A: Main Hot Page (div.child-item)
   $('.child-item').each((_, element) => {
     const el = $(element);
     const rank = el.find('.left-item span').text().trim();
     const titleLink = el.find('.medium-txt a');
     const title = titleLink.text().trim();
     const link = titleLink.attr('href') || '';
-    
-    // Some links might be relative
     const fullLink = link.startsWith('http') ? link : `https://tophub.today${link}`;
-    
+
     const smallTxt = el.find('.small-txt').text().trim();
-    // smallTxt format: "知乎 ‧ 958万热度"
     const parts = smallTxt.split('‧').map(s => s.trim());
     const source = parts[0] || '';
     const hot = parts[1] || '';
 
     if (title) {
-      items.push({
-        rank,
-        title,
-        link: fullLink,
-        source,
-        hot
-      });
+      items.push({ rank, title, link: fullLink, source, hot });
     }
   });
+
+  // Strategy B: Node Page (table tr) - Fallback
+  if (items.length === 0) {
+    $('table.table tr').each((_, element) => {
+      const el = $(element);
+      const tds = el.find('td');
+      if (tds.length >= 2) {
+        const rank = $(tds[0]).text().trim().replace('.', '');
+        const titleLink = $(tds[1]).find('a');
+        const title = titleLink.text().trim();
+        const link = titleLink.attr('href') || '';
+        const fullLink = link.startsWith('http') ? link : `https://tophub.today${link}`;
+        const hot = $(tds[2]).text().trim();
+        let source = $('.c-i-c .tt h3').text().trim().split('‧')[0]?.trim() || 'TopHub';
+
+        if (title) {
+          items.push({ rank, title, link: fullLink, source, hot });
+        }
+      }
+    });
+  }
 
   return items;
 }
@@ -109,7 +128,7 @@ async function fetchHotList(): Promise<HotItem[]> {
  */
 async function selectBestTopics(items: HotItem[]): Promise<Topic[]> {
   const topItems = items.slice(0, 50); // Analyze top 50 to find the best 10
-  const itemsText = topItems.map(item => 
+  const itemsText = topItems.map(item =>
     `${item.rank}. [${item.source}] ${item.title} (Hot: ${item.hot})`
   ).join('\n');
 
@@ -135,59 +154,55 @@ Return your selection in JSON format as an array of objects:
 `;
 
   console.log('🤖 Selecting best topics...');
-  
+
   if (MOCK_MODE) {
     return topItems.slice(0, 10).map(item => ({
-        title: item.title,
-        reason: "Mock selection",
-        source: item.source,
-        link: item.link
+      title: item.title,
+      reason: "Mock selection",
+      source: item.source,
+      link: item.link
     }));
   }
 
-  const msg = await anthropic.messages.create({
-    model: "anthropic/claude-sonnet-4",
-    max_tokens: 2000,
-    temperature: 0.7,
+  const markdown = await llm.generateText({
     system: "You are a content scout.",
-    messages: [
-      { role: "user", content: prompt }
-    ]
+    messages: [{ role: "user", content: prompt }],
+    model: CONFIG.LLM_MODEL || "anthropic/claude-sonnet-4"
   });
 
-  const content = (msg.content[0] as any).text;
-  
+  const content = markdown;
+
   // Extract JSON from response
   const jsonMatch = content.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
     throw new Error("Failed to parse JSON from selection response");
   }
-  
+
   const selectionData = JSON.parse(jsonMatch[0]);
   const selectedTopics: Topic[] = [];
 
   if (selectionData.topics && Array.isArray(selectionData.topics)) {
-      for (const t of selectionData.topics) {
-          const originalItem = topItems.find(i => i.rank === t.rank);
-          if (originalItem) {
-              selectedTopics.push({
-                  title: originalItem.title,
-                  reason: t.reason,
-                  source: originalItem.source,
-                  link: originalItem.link
-              });
-          }
+    for (const t of selectionData.topics) {
+      const originalItem = topItems.find(i => i.rank === t.rank);
+      if (originalItem) {
+        selectedTopics.push({
+          title: originalItem.title,
+          reason: t.reason,
+          source: originalItem.source,
+          link: originalItem.link
+        });
       }
+    }
   }
 
   if (selectedTopics.length === 0) {
-     console.warn("Could not find selected ranks, falling back to top items.");
-     return topItems.slice(0, 10).map(item => ({
-        title: item.title,
-        reason: "Fallback selection",
-        source: item.source,
-        link: item.link
-     }));
+    console.warn("Could not find selected ranks, falling back to top items.");
+    return topItems.slice(0, 10).map(item => ({
+      title: item.title,
+      reason: "Fallback selection",
+      source: item.source,
+      link: item.link
+    }));
   }
 
   return selectedTopics;
@@ -289,17 +304,13 @@ Please create a content piece following the **Defou x Stanley Workflow**.
 
   console.log(`🤖 Generating content for topic: "${topic.title}"...`);
 
-  const msg = await anthropic.messages.create({
-    model: "anthropic/claude-sonnet-4",
-    max_tokens: 4000,
-    temperature: 0.7,
+  const markdown = await llm.generateText({
     system: "You are Defou x Stanley, a viral content expert.",
-    messages: [
-      { role: "user", content: prompt }
-    ]
+    messages: [{ role: "user", content: prompt }],
+    model: CONFIG.LLM_MODEL || "anthropic/claude-sonnet-4"
   });
 
-  return (msg.content[0] as any).text;
+  return markdown;
 }
 
 /**
@@ -307,8 +318,21 @@ Please create a content piece following the **Defou x Stanley Workflow**.
  */
 async function run() {
   try {
+    // 0. Parse Args for Source
+    const args = process.argv.slice(2);
+    let sourceKey = DEFAULT_SOURCE;
+    args.forEach(arg => {
+      if (arg.startsWith('--source=')) {
+        sourceKey = arg.split('=')[1];
+      } else if (SOURCE_URLS[arg]) {
+        sourceKey = arg;
+      }
+    });
+    const targetUrl = SOURCE_URLS[sourceKey] || SOURCE_URLS[DEFAULT_SOURCE];
+    console.log(`🌍 Source: ${sourceKey} -> ${targetUrl}`);
+
     // 1. Fetch Trends
-    const items = await fetchHotList();
+    const items = await fetchHotList(targetUrl);
     console.log(`✅ Fetched ${items.length} items.`);
 
     // 2. Select Topics (Now selecting 10)
@@ -319,19 +343,19 @@ async function run() {
     // 3. Generate Content in parallel (limited concurrency)
     // Using p-limit to prevent rate limiting (e.g., max 2 concurrent requests)
     const limit = pLimit(2);
-    
+
     const tasks = selectedTopics.map(topic => {
       return limit(async () => {
         try {
-            const content = await generateContent(topic);
-            
-            // 4. Save Output
-            const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-            const safeTitle = topic.title.replace(/[^a-z0-9\u4e00-\u9fa5]/gi, '_').slice(0, 20);
-            const filename = `post_${dateStr}_${safeTitle}.md`;
-            const filepath = path.join(POSTS_DIR, filename);
-            
-            const finalContent = `
+          const content = await generateContent(topic);
+
+          // 4. Save Output
+          const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+          const safeTitle = topic.title.replace(/[^a-z0-9\u4e00-\u9fa5]/gi, '_').slice(0, 20);
+          const filename = `post_${dateStr}_${safeTitle}.md`;
+          const filepath = path.join(POSTS_DIR, filename);
+
+          const finalContent = `
 <!--
 Topic: ${topic.title}
 Source: ${topic.source}
@@ -343,10 +367,10 @@ Generated: ${new Date().toLocaleString()}
 ${content}
 `;
 
-            fs.writeFileSync(filepath, finalContent);
-            console.log(`✅ Saved content to: ${filepath}`);
+          fs.writeFileSync(filepath, finalContent);
+          console.log(`✅ Saved content to: ${filepath}`);
         } catch (err) {
-            console.error(`❌ Failed to generate content for "${topic.title}":`, err);
+          console.error(`❌ Failed to generate content for "${topic.title}":`, err);
         }
       });
     });

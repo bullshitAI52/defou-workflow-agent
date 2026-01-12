@@ -9,11 +9,7 @@ import { DEFOU_SYSTEM_PROMPT } from './templates';
 // Limit concurrency to 2 simultaneous requests to avoid Rate Limits
 const limit = pLimit(2);
 
-// Initialize Anthropic Client
-const anthropic = new Anthropic({
-  apiKey: CONFIG.ANTHROPIC_API_KEY || 'dummy',
-  baseURL: CONFIG.ANTHROPIC_BASE_URL,
-});
+import { llm } from './llm_client';
 
 async function main() {
   ensureDirectories();
@@ -21,7 +17,7 @@ async function main() {
   // Watch Mode
   console.log(`👀 Watching for new files in: ${CONFIG.INPUT_DIR}`);
   console.log(`🚀 Concurrency limit: 2`);
-  
+
   const watcher = chokidar.watch(CONFIG.INPUT_DIR, {
     persistent: true,
     ignoreInitial: false, // Process existing files on startup
@@ -37,7 +33,7 @@ async function main() {
 
     // Add a small delay to ensure file system is ready and avoid race conditions
     await new Promise(resolve => setTimeout(resolve, 500));
-    
+
     // Check if file still exists before processing
     if (!fs.existsSync(filePath)) return;
 
@@ -48,7 +44,7 @@ async function main() {
 
 async function processFile(filePath: string, fileName: string) {
   console.log(`\n⏳ Detected: ${fileName}`);
-  
+
   // 1. Move to Processing Directory
   const processingPath = path.join(CONFIG.PROCESSING_DIR, fileName);
   try {
@@ -69,23 +65,20 @@ async function processFile(filePath: string, fileName: string) {
       await new Promise(r => setTimeout(r, 1000)); // Simulate delay
       markdownContent = getMockResult();
     } else {
-      const msg = await anthropic.messages.create({
-        model: "anthropic/claude-sonnet-4",
-        max_tokens: 4000,
-        temperature: 0.7,
+      const markdown = await llm.generateText({
         system: DEFOU_SYSTEM_PROMPT,
-        messages: [
-          { role: "user", content: `Here is the raw content:\n\n${content}` }
-        ]
+        messages: [{ role: "user", content: `Here is the raw content:\n\n${content}` }],
+        // Allow model to be overridden by config, or use default
+        model: CONFIG.LLM_MODEL || "anthropic/claude-sonnet-4"
       });
 
-      markdownContent = (msg.content[0] as any).text;
+      markdownContent = markdown;
     }
 
     // 2. Generate Output with Header
     const date = new Date().toLocaleString();
     const finalOutput = `> **源文件**: \`${fileName}\`\n> **生成时间**: ${date}\n\n${markdownContent}`;
-    
+
     const outputPath = path.join(CONFIG.OUTPUT_ARTICLES_DIR, `${path.basename(fileName, path.extname(fileName))}_report.md`);
     fs.writeFileSync(outputPath, finalOutput);
     console.log(`   ✅ Report saved: ${outputPath}`);
@@ -93,16 +86,16 @@ async function processFile(filePath: string, fileName: string) {
     // 3. Move Original to Archive
     const archivePath = path.join(CONFIG.ARCHIVE_DIR, fileName);
     // Handle duplicate names in archive by appending timestamp
-    const finalArchivePath = fs.existsSync(archivePath) 
+    const finalArchivePath = fs.existsSync(archivePath)
       ? path.join(CONFIG.ARCHIVE_DIR, `${Date.now()}_${fileName}`)
       : archivePath;
-      
+
     fs.renameSync(processingPath, finalArchivePath);
     console.log(`   📦 Archived original: ${finalArchivePath}`);
 
   } catch (error) {
     console.error(`❌ Error processing ${fileName}:`, error);
-    
+
     // 4. Move to Error Directory
     const errorPath = path.join(CONFIG.ERRORS_DIR, fileName);
     if (fs.existsSync(processingPath)) {

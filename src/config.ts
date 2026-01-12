@@ -15,10 +15,16 @@ export const CONFIG = {
   ARCHIVE_DIR: path.resolve(__dirname, '../archive'),
   ERRORS_DIR: path.resolve(__dirname, '../errors'),
   // If true, uses a dummy response instead of calling the API (to save credits/testing)
-  MOCK_MODE: process.env.MOCK_MODE === 'true'
+  MOCK_MODE: process.env.MOCK_MODE === 'true',
+
+  // Generic LLM Configuration
+  LLM_PROVIDER: process.env.LLM_PROVIDER || 'anthropic', // 'anthropic' | 'openai'
+  LLM_API_KEY: process.env.LLM_API_KEY || process.env.ANTHROPIC_API_KEY,
+  LLM_BASE_URL: process.env.LLM_BASE_URL || process.env.ANTHROPIC_BASE_URL,
+  LLM_MODEL: process.env.LLM_MODEL,
 };
 
-if (!CONFIG.ANTHROPIC_API_KEY && !CONFIG.MOCK_MODE) {
-  console.warn("⚠️  Warning: ANTHROPIC_API_KEY is missing in .env file.");
+if (!CONFIG.ANTHROPIC_API_KEY && !CONFIG.LLM_API_KEY && !CONFIG.MOCK_MODE) {
+  console.warn("⚠️  Warning: API Key is missing in .env file.");
   console.warn("   You can still run in Mock Mode by setting MOCK_MODE=true in .env");
 }
